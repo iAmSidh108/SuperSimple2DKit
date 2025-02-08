@@ -6,10 +6,9 @@ using UnityEngine.SceneManagement;
 /*Adds player functionality to a physics object*/
 
 [RequireComponent(typeof(RecoveryCounter))]
-
 public class NewPlayer : PhysicsObject
 {
-    [Header ("Reference")]
+    [Header("Reference")]
     public AudioSource audioSource;
     [SerializeField] private Animator animator;
     private AnimatorFunctions animatorFunctions;
@@ -42,7 +41,7 @@ public class NewPlayer : PhysicsObject
     private float fallForgivenessCounter; //Counts how long the player has fallen off a ledge
     [SerializeField] private float fallForgiveness = .2f; //How long the player can fall from a ledge and still jump
     [System.NonSerialized] public string groundType = "grass";
-    [System.NonSerialized] public RaycastHit2D ground; 
+    [System.NonSerialized] public RaycastHit2D ground;
     [SerializeField] Vector2 hurtLaunchPower; //How much force should be applied to the player when getting hurt?
     private float launch; //The float added to x and y moveSpeed. This is set with hurtLaunchPower, and is always brought back to zero
     [SerializeField] private float launchRecovery; //How slow should recovering from the launch be? (Higher the number, the longer the launch will last)
@@ -54,14 +53,14 @@ public class NewPlayer : PhysicsObject
     [System.NonSerialized] public bool pounding;
     [System.NonSerialized] public bool shooting = false;
 
-    [Header ("Inventory")]
+    [Header("Inventory")]
     public float ammo;
     public int coins;
     public int health;
     public int maxHealth;
     public int maxAmmo;
 
-    [Header ("Sounds")]
+    [Header("Sounds")]
     public AudioClip deathSound;
     public AudioClip equipSound;
     public AudioClip grassSound;
@@ -77,6 +76,27 @@ public class NewPlayer : PhysicsObject
     public AudioClip stepSound;
     [System.NonSerialized] public int whichHurtSound;
 
+    public enum ProjectileType { Normal, Shotgun, Explosive }
+
+    [Header("Projectile Shooting")]
+    public ProjectileType currentProjectileType = ProjectileType.Normal;
+    public GameObject normalProjectilePrefab;
+    public GameObject shotgunProjectilePrefab;
+    public GameObject explosiveProjectilePrefab;
+    public Transform projectileFirePoint;
+    public float projectileSpeed = 10f;
+
+    // Fire rate settings for each type:
+    public float normalFireRate = 0.3f;
+    public float shotgunFireRate = 1.0f;
+    public float explosiveFireRate = 0.8f;
+
+    // Internal cooldown tracker:
+    private float nextFireTime = 0f;
+
+    [Header("Attack Mode")]
+    public bool useProjectileAttack = false;
+
     void Start()
     {
         Cursor.visible = false;
@@ -85,7 +105,7 @@ public class NewPlayer : PhysicsObject
         animatorFunctions = GetComponent<AnimatorFunctions>();
         origLocalScale = transform.localScale;
         recoveryCounter = GetComponent<RecoveryCounter>();
-        
+
         //Find all sprites so we can hide them when the player dies.
         graphicSprites = GetComponentsInChildren<SpriteRenderer>();
 
@@ -125,18 +145,26 @@ public class NewPlayer : PhysicsObject
             //Flip the graphic's localScale
             if (move.x > 0.01f)
             {
-               graphic.transform.localScale = new Vector3(origLocalScale.x, transform.localScale.y, transform.localScale.z);
+                graphic.transform.localScale = new Vector3(origLocalScale.x, transform.localScale.y, transform.localScale.z);
             }
             else if (move.x < -0.01f)
             {
-               graphic.transform.localScale = new Vector3(-origLocalScale.x, transform.localScale.y, transform.localScale.z);
+                graphic.transform.localScale = new Vector3(-origLocalScale.x, transform.localScale.y, transform.localScale.z);
             }
 
-            //Punch
+            //Punch (existing attack)
             if (Input.GetMouseButtonDown(0))
             {
-                animator.SetTrigger("attack");
-                Shoot(false);
+                
+                if (useProjectileAttack)
+                {
+                    ShootProjectile();
+                }
+                else
+                {
+                    PunchEffect();
+                    animator.SetTrigger("attack");
+                }
             }
 
             //Secondary attack (currently shooting) with right click
@@ -148,6 +176,7 @@ public class NewPlayer : PhysicsObject
             {
                 Shoot(false);
             }
+
 
             if (shooting)
             {
@@ -172,17 +201,13 @@ public class NewPlayer : PhysicsObject
                 animator.SetBool("grounded", true);
             }
 
-            //Set each animator float, bool, and trigger to it knows which animation to fire
+            //Set each animator float, bool, and trigger so it knows which animation to fire
             animator.SetFloat("velocityX", Mathf.Abs(velocity.x) / maxSpeed);
             animator.SetFloat("velocityY", velocity.y);
             animator.SetInteger("attackDirectionY", (int)Input.GetAxis("VerticalDirection"));
             animator.SetInteger("moveDirection", (int)Input.GetAxis("HorizontalDirection"));
             animator.SetBool("hasChair", GameManager.Instance.inventory.ContainsKey("chair"));
             targetVelocity = move * maxSpeed;
-
-
-
-
         }
         else
         {
@@ -218,7 +243,6 @@ public class NewPlayer : PhysicsObject
         shooting = false;
         launch = 0;
     }
-
 
     public void GetHurt(int hurtDirection, int hitPower)
     {
@@ -268,7 +292,6 @@ public class NewPlayer : PhysicsObject
         yield return new WaitForSeconds(length);
         Time.timeScale = 1f;
     }
-
 
     public IEnumerator Die()
     {
@@ -326,7 +349,6 @@ public class NewPlayer : PhysicsObject
         GameManager.Instance.audioSource.PlayOneShot(jumpSound, .1f);
     }
 
-
     public void JumpEffect()
     {
         jumpParticles.Emit(1);
@@ -370,7 +392,7 @@ public class NewPlayer : PhysicsObject
     }
     public void PoundEffect()
     {
-        //As long as the player as activated the pound in ActivatePound, the following will occur when hitting the ground.
+        //As long as the player has activated the pound in ActivatePound, the following will occur when hitting the ground.
         if (pounding)
         {
             animator.ResetTrigger("attack");
@@ -425,6 +447,29 @@ public class NewPlayer : PhysicsObject
         }
     }
 
+    // NEW: Projectile-based shooting method (no gravity)
+    public void ShootProjectile()
+    {
+        if (Time.time < nextFireTime)
+            return;
+
+        switch (currentProjectileType)
+        {
+            case ProjectileType.Normal:
+                ShootNormalProjectile();
+                nextFireTime = Time.time + normalFireRate;
+                break;
+            case ProjectileType.Shotgun:
+                ShootShotgunProjectile();
+                nextFireTime = Time.time + shotgunFireRate;
+                break;
+            case ProjectileType.Explosive:
+                ShootExplosiveProjectile();
+                nextFireTime = Time.time + explosiveFireRate;
+                break;
+        }
+    }
+
     public void SetUpCheatItems()
     {
         //Allows us to get various items immediately after hitting play, allowing for testing. 
@@ -432,5 +477,73 @@ public class NewPlayer : PhysicsObject
         {
             GameManager.Instance.GetInventoryItem(cheatItems[i], null);
         }
+    }
+
+    private void ShootNormalProjectile()
+    {
+        Vector2 shootDirection = new Vector2((graphic.transform.localScale.x > 0 ? 1f : -1f), 0f);
+        if (Input.GetAxis("VerticalDirection") > 0.1f)
+        {
+            shootDirection = Vector2.up;
+        }
+        GameObject projectile = Instantiate(normalProjectilePrefab, projectileFirePoint.position, Quaternion.identity);
+        Rigidbody2D rb = projectile.GetComponent<Rigidbody2D>();
+        if (rb != null)
+            rb.linearVelocity = shootDirection * projectileSpeed;
+        // Prevent collision with the player:
+        Collider2D playerCollider = GetComponent<Collider2D>();
+        Collider2D projectileCollider = projectile.GetComponent<Collider2D>();
+        if (playerCollider != null && projectileCollider != null)
+            Physics2D.IgnoreCollision(playerCollider, projectileCollider);
+    }
+
+    private void ShootShotgunProjectile()
+    {
+        int pelletCount = 5;
+        float spreadAngle = 15f; // Maximum deviation in degrees from the center
+        Vector2 centerDirection = new Vector2((graphic.transform.localScale.x > 0 ? 1f : -1f), 0f);
+        if (Input.GetAxis("VerticalDirection") > 0.1f)
+        {
+            centerDirection = Vector2.up;
+        }
+        // Spawn multiple pellets in a spread:
+        for (int i = 0; i < pelletCount; i++)
+        {
+            // Calculate angle offset for each pellet
+            float offsetAngle = Mathf.Lerp(-spreadAngle, spreadAngle, i / (float)(pelletCount - 1));
+            float centerAngle = Mathf.Atan2(centerDirection.y, centerDirection.x) * Mathf.Rad2Deg;
+            float pelletAngle = centerAngle + offsetAngle;
+            Vector2 pelletDirection = new Vector2(Mathf.Cos(pelletAngle * Mathf.Deg2Rad), Mathf.Sin(pelletAngle * Mathf.Deg2Rad));
+
+            GameObject pellet = Instantiate(shotgunProjectilePrefab, projectileFirePoint.position, Quaternion.identity);
+            Rigidbody2D rb = pellet.GetComponent<Rigidbody2D>();
+            if (rb != null)
+                rb.linearVelocity = pelletDirection * projectileSpeed;
+            // Prevent collision with the player:
+            Collider2D playerCollider = GetComponent<Collider2D>();
+            Collider2D pelletCollider = pellet.GetComponent<Collider2D>();
+            if (playerCollider != null && pelletCollider != null)
+                Physics2D.IgnoreCollision(playerCollider, pelletCollider);
+        }
+    }
+
+    private void ShootExplosiveProjectile()
+    {
+        Vector2 shootDirection = new Vector2((graphic.transform.localScale.x > 0 ? 1f : -1f), 0f);
+        if (Input.GetAxis("VerticalDirection") > 0.1f)
+        {
+            shootDirection = Vector2.up;
+        }
+        GameObject projectile = Instantiate(explosiveProjectilePrefab, projectileFirePoint.position, Quaternion.identity);
+        Rigidbody2D rb = projectile.GetComponent<Rigidbody2D>();
+        if (rb != null)
+            rb.linearVelocity = shootDirection * projectileSpeed;
+
+
+        // Prevent collision with the player:
+        Collider2D playerCollider = GetComponent<Collider2D>();
+        Collider2D projectileCollider = projectile.GetComponent<Collider2D>();
+        if (playerCollider != null && projectileCollider != null)
+            Physics2D.IgnoreCollision(playerCollider, projectileCollider);
     }
 }
