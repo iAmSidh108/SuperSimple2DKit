@@ -8,6 +8,8 @@ public class ProjectileBase : MonoBehaviour
 
     void Start()
     {
+        Physics2D.IgnoreLayerCollision(gameObject.layer, gameObject.layer, true);
+
         // Schedule destruction after 'lifeTime' seconds
         Destroy(gameObject, lifeTime);
     }
@@ -27,8 +29,14 @@ public class ProjectileBase : MonoBehaviour
         if (collision.gameObject.tag == "Player")
             return;
 
-        
-        Destroy(gameObject);
+        else if (collision.gameObject.tag == "Projectile")
+        {
+            Debug.Log("Collided with self");
+        }
+
+        else
+            Destroy(gameObject);
+
     }
 
     void PlayImpactEffect()
@@ -37,6 +45,8 @@ public class ProjectileBase : MonoBehaviour
         {
             ParticleSystem particle= Instantiate(impactEffect, transform.position, transform.rotation).GetComponent<ParticleSystem>();
             particle.Play();
+
+            Destroy(particle.gameObject, 5f);
         }
     }
 

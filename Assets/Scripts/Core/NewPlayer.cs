@@ -519,11 +519,13 @@ public class NewPlayer : PhysicsObject
             Rigidbody2D rb = pellet.GetComponent<Rigidbody2D>();
             if (rb != null)
                 rb.linearVelocity = pelletDirection * projectileSpeed;
+
             // Prevent collision with the player:
-            Collider2D playerCollider = GetComponent<Collider2D>();
-            Collider2D pelletCollider = pellet.GetComponent<Collider2D>();
+            Collider2D playerCollider = GetComponent<CapsuleCollider2D>();
+            Collider2D pelletCollider = pellet.GetComponent<CircleCollider2D>();
             if (playerCollider != null && pelletCollider != null)
                 Physics2D.IgnoreCollision(playerCollider, pelletCollider);
+            //Debug.Log("Shotgun fired");
         }
     }
 
